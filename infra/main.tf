@@ -11,9 +11,6 @@ provider "aws" {
   region = var.aws_region
 }
 
-resource "aws_s3_bucket" "data" {
-  bucket = var.bucket_name
-}
 
 resource "aws_iam_role" "lambda" {
   name = "nifty_lambda_role"
@@ -45,9 +42,9 @@ resource "aws_iam_role_policy" "lambda" {
         Resource = "arn:aws:logs:*:*:*"
       },
       {
-        Action   = ["s3:PutObject"],
+        Action   = ["s3:GetObject", "s3:PutObject"],
         Effect   = "Allow",
-        Resource = "${aws_s3_bucket.data.arn}/*"
+        Resource = format("arn:aws:s3:::%s/*", var.bucket_name)
       }
     ]
   })
@@ -69,18 +66,18 @@ resource "aws_lambda_function" "fetch_nifty" {
 
   environment {
     variables = {
-      BUCKET_NAME = aws_s3_bucket.data.bucket
+      BUCKET_NAME = var.bucket_name
     }
   }
 }
 
-resource "aws_cloudwatch_event_rule" "daily" {
-  name                = "daily_nifty_fetch"
-  schedule_expression = "cron(0 0 * * ? *)"
+resource "aws_cloudwatch_event_rule" "every_15m" {
+  name                = "nifty_fetch_15m"
+  schedule_expression = "rate(15 minutes)"
 }
 
 resource "aws_cloudwatch_event_target" "lambda_target" {
-  rule      = aws_cloudwatch_event_rule.daily.name
+  rule      = aws_cloudwatch_event_rule.every_15m.name
   target_id = "nifty_lambda"
   arn       = aws_lambda_function.fetch_nifty.arn
 }
@@ -90,7 +87,7 @@ resource "aws_lambda_permission" "allow_cloudwatch" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.fetch_nifty.function_name
   principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.daily.arn
+  source_arn    = aws_cloudwatch_event_rule.every_15m.arn
 }
 
 variable "bucket_name" {
@@ -103,8 +100,4 @@ variable "aws_region" {
   description = "AWS region"
   type        = string
   default     = "us-east-1"
-}
-
-output "bucket_name" {
-  value = aws_s3_bucket.data.bucket
 }
